@@ -1,7 +1,6 @@
 # 🚀 DevOps CI/CD Project - 2026
 
 ![Build Status](https://github.com/Madow78/tp-docker/actions/workflows/main.yml/badge.svg)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=25596422320af8ef09160c269c92d3eeaceea89a&metric=alert_status)](https://sonarcloud.io/dashboard?id=25596422320af8ef09160c269c92d3eeaceea89a)
 
 ## 📖 Description
 Ce projet est une implémentation complète d'un pipeline CI/CD (DevOps) pour une architecture microservices comprenant un Backend (Java/Spring Boot), une Base de données (PostgreSQL) et un Serveur Web/Reverse Proxy (Apache/Nginx).
