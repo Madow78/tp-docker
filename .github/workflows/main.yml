@@ -24,12 +24,11 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      # ÉTAPE 1 : On lance les tests Maven (Verify)
-      # Si cette étape échoue, le job s'arrête ici.
+      # CORRECTION : On pointe vers le dossier "backend"
       - name: Run Backend Tests
-        run: mvn -B clean verify --file simple-api/pom.xml
+        run: mvn -B clean verify --file backend/pom.xml
 
-      # ÉTAPE 2 : Analyse SonarCloud (Seulement si les tests sont passés)
+      # CORRECTION : On pointe vers le dossier "backend"
       - name: SonarCloud Analysis
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -40,7 +39,7 @@ jobs:
           -Dsonar.organization=madow78 \
           -Dsonar.host.url=https://sonarcloud.io \
           -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-          --file ./simple-api/pom.xml
+          --file ./backend/pom.xml
 
   build-image-backend:
     needs: test-backend 
@@ -54,7 +53,8 @@ jobs:
       - name: Build and push backend
         uses: docker/build-push-action@v6
         with:
-          context: ./simple-api
+          # CORRECTION : On pointe vers le dossier "backend"
+          context: ./backend
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-simple-api:latest
           push: ${{ github.ref == 'refs/heads/main' }}
 
