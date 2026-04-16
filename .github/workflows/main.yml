@@ -8,44 +8,36 @@ on:
 
 jobs:
   # ---------------------------------------------------------
-  # ÉTAPE 1 : Tests Backend (Job indépendant)
+  # CHAÎNE BACKEND : Séquentielle (Test -> Sonar -> Docker)
   # ---------------------------------------------------------
   test-backend:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'maven' # <-- CORRECTION : Protège contre l'erreur 403
-
+          cache: 'maven'
       - name: Run Backend Tests
         run: mvn -B clean verify --file backend/pom.xml
 
-  # ---------------------------------------------------------
-  # ÉTAPE 2 : Analyse Sonar (Job séparé, attend test-backend)
-  # ---------------------------------------------------------
   sonar-analysis:
     needs: test-backend
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'maven' # <-- CORRECTION : Partage le cache avec l'étape 1
-
+          cache: 'maven'
       - name: SonarCloud Analysis
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        # ASTUCE : On ajoute "verify -DskipTests" pour que Sonar ait les fichiers compilés sans refaire les tests
         run: |
           mvn -B verify sonar:sonar -DskipTests \
           -Dsonar.projectKey=Madow78_tp-devops \
@@ -54,18 +46,13 @@ jobs:
           -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
           --file ./backend/pom.xml
 
-  # ---------------------------------------------------------
-  # ÉTAPE 3 : Images Docker (Attendent sonar-analysis)
-  # ---------------------------------------------------------
   build-image-backend:
     needs: sonar-analysis 
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-
       - name: Build and push backend
         uses: docker/build-push-action@v6
         with:
@@ -73,15 +60,17 @@ jobs:
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-simple-api:latest
           push: ${{ github.ref == 'refs/heads/main' }}
 
+  # ---------------------------------------------------------
+  # JOBS INDÉPENDANTS : Se lancent tout de suite en parallèle
+  # ---------------------------------------------------------
+
   build-image-front:
-    needs: sonar-analysis
+    # Suppression du "needs" pour lancer ce job immédiatement
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-
       - name: Build and push httpd
         uses: docker/build-push-action@v6
         with:
@@ -90,14 +79,12 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
 
   build-image-database:
-    needs: sonar-analysis
+    # Suppression du "needs" pour lancer ce job immédiatement
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-
       - name: Build and push database
         uses: docker/build-push-action@v6
         with:
