@@ -1,0 +1,45 @@
+services:
+  database:
+    build: ./database
+    container_name: database
+    restart: always
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - my_db_data:/var/lib/postgresql/data
+    networks:
+      - db-network
+
+  backend:
+    build: ./backend
+    container_name: backend
+    restart: always
+    depends_on:
+      - database
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    networks:
+      - db-network
+      - web-network
+
+  httpd:
+    build: ./http-server
+    container_name: httpd
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - web-network
+
+networks:
+  web-network:
+  db-network:
+
+volumes:
+  my_db_data:
