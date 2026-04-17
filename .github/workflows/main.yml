@@ -4,13 +4,14 @@ on:
   push:
     branches: 
       - main
+      - 'feature/**' # Se lance sur toutes les branches commençant par feature/
   pull_request:
+    branches:
+      - main
 
 jobs:
-  # ---------------------------------------------------------
-  # CHAÎNE BACKEND : Séquentielle (Test -> Sonar -> Docker)
-  # ---------------------------------------------------------
-  test-backend:
+  # PARTIE 1 : Toujours vérifier le code (Dev & Main)
+  test-and-sonar:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -20,74 +21,39 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Run Backend Tests
-        run: mvn -B clean verify --file backend/pom.xml
-
-  sonar-analysis:
-    needs: test-backend
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-      - name: SonarCloud Analysis
+      - name: Tests & Sonar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          mvn -B verify sonar:sonar -DskipTests \
-          -Dsonar.projectKey=Madow78_tp-docker \
+          mvn -B clean verify sonar:sonar \
+          -Dsonar.projectKey=Madow78_tp-devops \
           -Dsonar.organization=madow78 \
           -Dsonar.host.url=https://sonarcloud.io \
           -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-          --file ./backend/pom.xml
+          --file backend/pom.xml
 
-  build-image-backend:
-    needs: sonar-analysis 
+  # PARTIE 2 : Docker (UNIQUEMENT AU MERGE SUR MAIN)
+  deploy-docker:
+    needs: test-and-sonar
+    if: github.ref == 'refs/heads/main' # Condition de merge sur main
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-      - name: Build and push backend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-simple-api:latest
-          push: ${{ github.ref == 'refs/heads/main' }}
 
-  # ---------------------------------------------------------
-  # JOBS INDÉPENDANTS : Se lancent tout de suite en parallèle
-  # ---------------------------------------------------------
+      - name: Build and push
+        run: |
+          # On définit une variable de version basée sur le numéro du run GitHub
+          VERSION=v${{ github.run_number }}
+          USER=${{ secrets.DOCKERHUB_USERNAME }}
 
-  build-image-front:
-    # Suppression du "needs" pour lancer ce job immédiatement
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-      - name: Build and push httpd
-        uses: docker/build-push-action@v6
-        with:
-          context: ./http-server
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:latest
-          push: ${{ github.ref == 'refs/heads/main' }}
+          # Build & Push avec double tag : version précise ET latest
+          docker build -t $USER/tp-devops-backend:$VERSION -t $USER/tp-devops-backend:latest ./backend
+          docker build -t $USER/tp-devops-database:$VERSION -t $USER/tp-devops-database:latest ./database
+          docker build -t $USER/tp-devops-httpd:$VERSION -t $USER/tp-devops-httpd:latest ./http-server
 
-  build-image-database:
-    # Suppression du "needs" pour lancer ce job immédiatement
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-      - name: Build and push database
-        uses: docker/build-push-action@v6
-        with:
-          context: ./database
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:latest
-          push: ${{ github.ref == 'refs/heads/main' }}
+          docker push $USER/tp-devops-backend --all-tags
+          docker push $USER/tp-devops-database --all-tags
+          docker push $USER/tp-devops-httpd --all-tags
