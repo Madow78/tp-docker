@@ -52,7 +52,7 @@ jobs:
           -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
           --file ./backend/pom.xml
 
-  # 3. IMAGE BACKEND (Attend Sonar + Uniquement sur Main)
+  # 3. IMAGE BACKEND (Attend Sonar + Uniquement sur Main après merge)
   build-image-backend:
     needs: sonar-analysis
     if: github.ref == 'refs/heads/main'
@@ -74,11 +74,12 @@ jobs:
         with:
           context: ./backend
           push: true
+          # Rollback automatique : 'latest' ne bouge pas si le build fail
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:${{ steps.vars.outputs.sha_short }}
 
   # ---------------------------------------------------------
-  # JOBS INDÉPENDANTS (Se lancent tout de suite, sans attendre)
+  # JOBS INDÉPENDANTS (Se lancent tout de suite en parallèle)
   # ---------------------------------------------------------
 
   # IMAGE FRONT
@@ -128,7 +129,3 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:${{ steps.vars.outputs.sha_short }}
-
-
-
-
