@@ -2,57 +2,34 @@ name: CI devops 2026
 
 on:
   push:
-    branches: 
-      - main
-      - 'feature/**'
+    branches: [main, 'feature/**']
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
-  # ---------------------------------------------------------
-  # CHAÎNE BACKEND : Séquentielle (Test -> Sonar -> Image)
-  # ---------------------------------------------------------
-  
-  # 1. TEST BACKEND
+  # --- CHAÎNE BACKEND ---
   test-backend:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Run Backend Tests
-        run: mvn -B clean verify --file backend/pom.xml
+      - run: mvn -B clean verify --file backend/pom.xml
 
-  # 2. TEST SONAR (Attend les tests)
   sonar-analysis:
     needs: test-backend
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-      - name: SonarCloud Analysis
+      - name: Sonar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          mvn -B verify sonar:sonar -DskipTests \
-          -Dsonar.projectKey=Madow78_tp-devops \
-          -Dsonar.organization=madow78 \
-          -Dsonar.host.url=https://sonarcloud.io \
-          -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-          --file ./backend/pom.xml
+        run: mvn -B verify sonar:sonar -DskipTests -Dsonar.projectKey=Madow78_tp-devops -Dsonar.organization=madow78 -Dsonar.host.url=https://sonarcloud.io -Dsonar.login=${{ secrets.SONAR_TOKEN }} --file ./backend/pom.xml
 
-  # 3. IMAGE BACKEND (Attend Sonar + Uniquement sur Main après merge)
   build-image-backend:
     needs: sonar-analysis
     if: github.ref == 'refs/heads/main'
@@ -64,25 +41,15 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
-      - name: Get short SHA
-        id: vars
+      - id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Build and push Backend
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
-          # Rollback automatique : 'latest' ne bouge pas si le build fail
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:${{ steps.vars.outputs.sha_short }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:${{ steps.vars.outputs.sha_short }}
 
-  # ---------------------------------------------------------
-  # JOBS INDÉPENDANTS (Se lancent tout de suite en parallèle)
-  # ---------------------------------------------------------
-
-  # IMAGE FRONT
+  # --- JOBS INDÉPENDANTS ---
   build-image-front:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -93,20 +60,14 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Get short SHA
-        id: vars
+      - id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Build and push HTTPD
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: ./http-server
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:${{ steps.vars.outputs.sha_short }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:${{ steps.vars.outputs.sha_short }}
 
-  # IMAGE DATABASE
   build-image-database:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -117,15 +78,20 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Get short SHA
-        id: vars
+      - id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Build and push Database
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: ./database
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:${{ steps.vars.outputs.sha_short }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:${{ steps.vars.outputs.sha_short }}
+
+  # --- LE JOB DE ROLLBACK (Nettoyage et Alerte) ---
+  rollback-handler:
+    needs: [build-image-backend, build-image-front, build-image-database]
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Infrastructure Failure Alert
+        run: |
+          echo "ÉCHEC DU DÉPLOIEMENT DÉTECTÉ "
