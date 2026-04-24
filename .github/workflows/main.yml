@@ -52,7 +52,7 @@ jobs:
           -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
           --file ./backend/pom.xml
 
-  # 3. IMAGE BACKEND (Attend Sonar + Uniquement sur Main après merge)
+  # 3. IMAGE BACKEND (Attend Sonar + Uniquement sur Main)
   build-image-backend:
     needs: sonar-analysis
     if: github.ref == 'refs/heads/main'
@@ -74,12 +74,12 @@ jobs:
         with:
           context: ./backend
           push: true
-          # Rollback automatique : 'latest' ne bouge pas si le build fail
           tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:${{ steps.vars.outputs.sha_short }}
 
   # ---------------------------------------------------------
-  # JOBS INDÉPENDANTS (Se lancent tout de suite en parallèle)
+  # JOBS PARALLÈLES (Se lancent tout de suite sur Main)
   # ---------------------------------------------------------
 
   # IMAGE FRONT
@@ -104,6 +104,7 @@ jobs:
           context: ./http-server
           push: true
           tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:${{ steps.vars.outputs.sha_short }}
 
   # IMAGE DATABASE
@@ -128,4 +129,35 @@ jobs:
           context: ./database
           push: true
           tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:${{ steps.vars.outputs.sha_short }}
+
+  # ---------------------------------------------------------
+  # DÉPLOIEMENT : Ansible (Attend que TOUTES les images soient prêtes)
+  # ---------------------------------------------------------
+  deploy:
+    needs: [build-image-backend, build-image-front, build-image-database]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ANSIBLE_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
+      - name: Run Ansible Playbook
+        run: |
+          ansible-playbook -i ansible/inventories/setup.yml ansible/playbook.yml \
+          --private-key ~/.ssh/id_rsa \
+          -u admin \
+          --ssh-common-args='-o StrictHostKeyChecking=no'
