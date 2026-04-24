@@ -10,25 +10,24 @@ on:
       - main
 
 jobs:
-  # ---------------------------------------------------------
-  # CHAÎNE BACKEND : Séquentielle (Test -> Sonar -> Image)
-  # ---------------------------------------------------------
-  
-  # 1. TEST BACKEND
+  # 1. TEST BACKEND (La base, se lance en premier)
   test-backend:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
+
       - name: Run Backend Tests
+        # On utilise le dossier 'backend'. Si ton dossier s'appelle encore simple-api, renomme-le sur ton PC !
         run: mvn -B clean verify --file backend/pom.xml
 
-  # 2. TEST SONAR (Attend les tests)
+  # 2. SONAR ANALYSIS (Attend les tests)
   sonar-analysis:
     needs: test-backend
     runs-on: ubuntu-24.04
@@ -39,7 +38,6 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'maven'
       - name: SonarCloud Analysis
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,9 +48,9 @@ jobs:
           -Dsonar.organization=madow78 \
           -Dsonar.host.url=https://sonarcloud.io \
           -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-          --file ./backend/pom.xml
+          --file backend/pom.xml
 
-  # 3. IMAGE BACKEND (Attend Sonar + Uniquement sur Main)
+  # 3. BUILD IMAGE BACKEND (Attend Sonar)
   build-image-backend:
     needs: sonar-analysis
     if: github.ref == 'refs/heads/main'
@@ -64,25 +62,14 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
-      - name: Get short SHA
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
       - name: Build and push Backend
         uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:${{ steps.vars.outputs.sha_short }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-backend:latest
 
-  # ---------------------------------------------------------
-  # JOBS PARALLÈLES (Se lancent tout de suite sur Main)
-  # ---------------------------------------------------------
-
-  # IMAGE FRONT
+  # 4. BUILD IMAGE FRONT (En parallèle du backend/sonar)
   build-image-front:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -93,21 +80,14 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Get short SHA
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Build and push HTTPD
+      - name: Build and push Front
         uses: docker/build-push-action@v6
         with:
-          context: ./http-server
+          context: ./front
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:${{ steps.vars.outputs.sha_short }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-front:latest
 
-  # IMAGE DATABASE
+  # 5. BUILD IMAGE DATABASE (En parallèle du backend/sonar)
   build-image-database:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -118,43 +98,45 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Get short SHA
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
       - name: Build and push Database
         uses: docker/build-push-action@v6
         with:
           context: ./database
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:${{ steps.vars.outputs.sha_short }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:latest
 
-  # ---------------------------------------------------------
-  # DÉPLOIEMENT : Ansible (Attend que TOUTES les images soient prêtes)
-  # ---------------------------------------------------------
+  # 6. BUILD IMAGE PROXY / HTTPD (En parallèle)
+  build-image-proxy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push Proxy
+        uses: docker/build-push-action@v6
+        with:
+          context: ./http-server
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-proxy:latest
+
+  # 7. DEPLOY (Attend que les 4 images soient prêtes)
   deploy:
-    needs: [build-image-backend, build-image-front, build-image-database]
+    needs: [build-image-backend, build-image-front, build-image-database, build-image-proxy]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: production
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.ANSIBLE_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-
-      - name: Install Ansible
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ansible
-
       - name: Run Ansible Playbook
         run: |
           ansible-playbook -i ansible/inventories/setup.yml ansible/playbook.yml \
