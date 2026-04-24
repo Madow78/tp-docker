@@ -1,8 +1,7 @@
----
 - name: Run Proxy Container
   docker_container:
     name: httpd
-    image: madow78/tp-devops-httpd
+    image: "{{ secrets.DOCKERHUB_USERNAME }}/tp-devops-proxy:latest"
     pull: true
     networks:
       - name: app-network
@@ -10,5 +9,3 @@
       - "80:80"
     state: started
     restart_policy: always
-  vars:
-    ansible_python_interpreter: /opt/docker_venv/bin/python
