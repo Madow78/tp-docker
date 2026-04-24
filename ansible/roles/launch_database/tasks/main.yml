@@ -1,0 +1,15 @@
+---
+- name: Run Database Container
+  docker_container:
+    name: database
+    image: madow78/tp-devops-database
+    networks:
+      - name: app-network
+    env:
+      POSTGRES_DB: db
+      POSTGRES_USER: usr
+      POSTGRES_PASSWORD: pwd
+    state: started
+    restart_policy: always
+  vars:
+    ansible_python_interpreter: /opt/docker_venv/bin/python
