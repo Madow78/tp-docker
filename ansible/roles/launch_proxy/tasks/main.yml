@@ -3,6 +3,7 @@
   docker_container:
     name: httpd
     image: madow78/tp-devops-httpd
+    pull: true
     networks:
       - name: app-network
     ports:
