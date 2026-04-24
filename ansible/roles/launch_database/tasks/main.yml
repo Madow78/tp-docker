@@ -3,6 +3,7 @@
   docker_container:
     name: database
     image: madow78/tp-devops-database
+    pull: true
     networks:
       - name: app-network
     env:

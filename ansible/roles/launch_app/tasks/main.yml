@@ -3,6 +3,7 @@
   docker_container:
     name: backend
     image: madow78/tp-devops-backend
+    pull: true
     networks:
       - name: app-network
     env:
