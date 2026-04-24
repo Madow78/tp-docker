@@ -1,0 +1,9 @@
+---
+- name: Run Front Container
+  docker_container:
+    name: front
+    image: "madow78/tp-devops-front"
+    networks:
+      - name: app-network
+    state: started
+    restart_policy: always
